@@ -1,0 +1,21 @@
+table ip nat {
+        chain postrouting {
+                type nat hook postrouting priority srcnat; policy accept;
+                oif "{{ ansible_facts.default_ipv4.interface }}" ipsec out ip saddr 10.10.10.0/24 accept
+                ip saddr 10.10.10.0/24 oif "{{ ansible_facts.default_ipv4.interface }}" masquerade
+        }
+}
+table ip mangle {
+        chain forward {
+                type filter hook forward priority mangle; policy accept;
+                oif "{{ ansible_facts.default_ipv4.interface }}" ipsec in ip saddr 10.10.10.0/24 tcp flags syn / syn,rst tcp option maxseg size 1361-1536 tcp option maxseg size set 1360
+        }
+}
+table ip filter {
+        chain forward {
+                type filter hook forward priority filter; policy accept;
+                ip protocol esp ip saddr 10.10.10.0/24 counter packets 0 bytes 0 accept
+                ip protocol esp ip saddr 10.10.10.0/24 counter packets 0 bytes 0 accept
+                ip protocol esp ip daddr 10.10.10.0/24 counter packets 0 bytes 0 accept
+        }
+}

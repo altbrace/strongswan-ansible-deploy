@@ -1,0 +1,16 @@
+---
+- name: Deploy Strongswan
+  hosts: test
+  become: true
+  vars_files:
+    - vars/pki-config.yml
+    - vars/ipsec-users.yml
+    - vars/vault.yml
+
+  tasks:
+    - name: Include tasks
+      ansible.builtin.include_tasks: tasks/main.yml
+
+  handlers:
+    - name: Include handlers
+      ansible.builtin.import_tasks: handlers/main.yml

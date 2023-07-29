@@ -1,0 +1,141 @@
+---
+- name: Check if Strongswan is present
+  ansible.builtin.systemd:
+      name: strongswan-starter
+  register: strongswan
+
+- name: End play for host if service is running
+  when: strongswan.status.SubState == "running"
+  block:
+      - name: End play for host if service is running
+        ansible.builtin.debug:
+            msg: "Strongswan service is present, ending play for host"
+      - name: End play for host if service is running
+        ansible.builtin.meta: end_host
+
+- name: Install requirements
+  ansible.builtin.apt:
+      pkg:
+          - strongswan
+          - strongswan-pki
+          - libcharon-extra-plugins
+          - libcharon-extauth-plugins
+          - iptables
+          - nftables
+          - net-tools
+      update_cache: true
+
+- name: Create directories for certificates
+  ansible.builtin.file:
+      path:
+          - "{{ ipsec.private.path }}"
+          - "{{ ipsec.cacerts.path }}"
+          - "{{ ipsec.certs.path }}"
+      mode: "0700"
+      state: directory
+
+- name: Generate CA private key
+  ansible.builtin.shell: "pki --gen --type rsa --size 4096 --outform pem > {{ ipsec.private.ca_key }}"
+  args:
+      chdir: "{{ ipsec.private.path }}"
+  when: generate_certs is defined and generate_certs
+  register: output
+  changed_when: output.rc == 0
+  notify: "Restart strongswan"
+
+- name: Generate CA certificate
+  ansible.builtin.shell: |
+    pki --self --ca --lifetime 3650 --in {{ ipsec.private.path }}/{{ ipsec.private.ca_key }} \
+    --type rsa --dn "CN={{ ipsec.cacerts.ca_cert.common_name }}" --outform pem > {{ ipsec.cacerts.ca_cert.filename }}
+  args:
+      chdir: "{{ ipsec.cacerts.path }}"
+  when: generate_certs is defined and generate_certs
+  register: output
+  changed_when: output.rc == 0
+  notify: "Restart strongswan"
+
+- name: Generate server key
+  ansible.builtin.shell: "pki --gen --type rsa --size 4096 --outform pem > {{ ipsec.private.server_key }}"
+  args:
+      chdir: "{{ ipsec.private.path }}"
+  when: generate_certs is defined and generate_certs
+  register: output
+  changed_when: output.rc == 0
+  notify: "Restart strongswan"
+
+- name: Generate server certificate
+  ansible.builtin.shell: |
+    set -o pipefail
+    pki --pub --in {{ ipsec.private.path }}/{{ ipsec.private.server_key }} --type rsa | pki --issue --lifetime 1825 \
+      --cacert {{ ipsec.cacerts.path }}/{{ ipsec.cacerts.ca_cert.filename }} \
+      --cakey {{ ipsec.private.path }}/{{ ipsec.private.ca_key }} \
+      --dn "CN={{ ipsec.certs.server_cert.common_name }}" --san @{{ ansible_host }} --san {{ domain_name }} \
+      --flag serverAuth --flag ikeIntermediate --outform pem > {{ ipsec.certs.server_cert.filename }}
+  args:
+      chdir: "{{ ipsec.certs.path }}"
+      executable: /bin/bash
+  when: generate_certs is defined and generate_certs
+  register: output
+  changed_when: output.rc == 0
+  notify: "Restart strongswan"
+
+- name: Download CA certificate to current localhost directory
+  ansible.builtin.fetch:
+      src: "{{ ipsec.cacerts.path }}/{{ ipsec.cacerts.ca_cert.filename }}"
+      dest: "./{{ domain_name }}-ca-cert.pem"
+      flat: true
+
+- name: "Chmod {{ ipsec.private.path }}"
+  ansible.builtin.file:
+      path: "{{ ipsec.private.path }}"
+      mode: '0700'
+      recurse: true
+
+- name: Create ipsec.conf
+  ansible.builtin.template:
+      src: templates/ipsec.conf.j2
+      dest: /etc/ipsec.conf
+      mode: '0644'
+      owner: root
+      group: root
+      backup: true
+  notify: "Restart strongswan"
+
+- name: Create ipsec.secrets
+  ansible.builtin.template:
+      src: templates/ipsec.secrets.j2
+      dest: /etc/ipsec.secrets
+      mode: '0600'
+      owner: root
+      group: root
+      backup: true
+  notify: "Restart strongswan"
+
+- name: Sysctl - Enable ipv4 forwarding
+  ansible.posix.sysctl:
+      name: net.ipv4.ip_forward
+      value: '1'
+
+- name: Sysctl - Deny ipv4 redirects
+  ansible.posix.sysctl:
+      name: net.ipv4.conf.all.accept_redirects
+      value: '0'
+
+- name: Sysctl - Do not send ipv4 redirects
+  ansible.posix.sysctl:
+      name: net.ipv4.conf.all.send_redirects
+      value: '0'
+
+- name: Sysctl - ip_no_pmtu_disc
+  ansible.posix.sysctl:
+      name: net.ipv4.ip_no_pmtu_disc
+      value: '1'
+
+- name: Nftables - Add config file
+  ansible.builtin.template:
+      src: templates/nftables.conf.j2
+      dest: /etc/nftables.conf
+      mode: '0644'
+      owner: root
+      group: root
+  notify: "Nftables - Reload configuration"

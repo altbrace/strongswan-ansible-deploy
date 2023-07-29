@@ -1,0 +1,12 @@
+---
+- name: Nftables - Reload configuration
+  ansible.builtin.shell: |
+    nft flush ruleset
+    nft -f /etc/nftables.conf
+  register: output
+  changed_when: output.rc == 0
+
+- name: Restart strongswan
+  ansible.builtin.systemd:
+      name: strongswan-starter
+      state: restarted

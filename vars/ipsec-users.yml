@@ -1,0 +1,5 @@
+---
+ipsec_users:
+  - name: altbrace
+    password: VerY_$eCUre_p4$$w0rD
+    # password: "{{ lookup('hashi_vault', 'secret=secret/data/altbrace:password token={{ vault.token }} url={{ vault.url }}') }}"
