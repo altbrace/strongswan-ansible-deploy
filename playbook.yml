@@ -10,7 +10,9 @@
   tasks:
     - name: Include tasks
       ansible.builtin.include_tasks: tasks/main.yml
+      tags: always
 
   handlers:
     - name: Include handlers
       ansible.builtin.import_tasks: handlers/main.yml
+      tags: always

@@ -3,14 +3,32 @@
   ansible.builtin.systemd:
       name: strongswan-starter
   register: strongswan
+  tags: always
 
 - name: End play for host if service is running
   when: strongswan.status.SubState == "running"
+  tags: install
   block:
       - name: End play for host if service is running
         ansible.builtin.debug:
-            msg: "Strongswan service is present, ending play for host"
+            msg: |
+              Strongswan service is running, ending play for host.
+              Run with "configure" and/or "renew_ca" and/or "renew_certificate" tags to update configuration
       - name: End play for host if service is running
+        ansible.builtin.meta: end_host
+
+- name: End play for host if service is not found
+  when: strongswan.status.LoadState == "not-found"
+  tags:
+      - configure
+      - never
+  block:
+      - name: End play for host if service is not found
+        ansible.builtin.debug:
+            msg: |
+              Strongswan service is not found, ending play for host.
+              To install Strongswan, run this playbook with `--tags "install"`
+      - name: End play for host if service is not found
         ansible.builtin.meta: end_host
 
 - name: Install requirements
@@ -24,6 +42,7 @@
           - nftables
           - net-tools
       update_cache: true
+  tags: install
 
 - name: Create directories for certificates
   ansible.builtin.file:
@@ -33,15 +52,18 @@
           - "{{ ipsec.certs.path }}"
       mode: "0700"
       state: directory
+  tags: install
 
 - name: Generate CA private key
   ansible.builtin.shell: "pki --gen --type rsa --size 4096 --outform pem > {{ ipsec.private.ca_key }}"
   args:
       chdir: "{{ ipsec.private.path }}"
-  when: generate_certs is defined and generate_certs
   register: output
   changed_when: output.rc == 0
   notify: "Restart strongswan"
+  tags:
+      - install
+      - renew_ca
 
 - name: Generate CA certificate
   ansible.builtin.shell: |
@@ -49,19 +71,24 @@
     --type rsa --dn "CN={{ ipsec.cacerts.ca_cert.common_name }}" --outform pem > {{ ipsec.cacerts.ca_cert.filename }}
   args:
       chdir: "{{ ipsec.cacerts.path }}"
-  when: generate_certs is defined and generate_certs
   register: output
   changed_when: output.rc == 0
   notify: "Restart strongswan"
+  tags:
+      - install
+      - renew_ca
 
 - name: Generate server key
   ansible.builtin.shell: "pki --gen --type rsa --size 4096 --outform pem > {{ ipsec.private.server_key }}"
   args:
       chdir: "{{ ipsec.private.path }}"
-  when: generate_certs is defined and generate_certs
   register: output
   changed_when: output.rc == 0
   notify: "Restart strongswan"
+  tags:
+      - install
+      - renew_certificate
+      - renew_ca
 
 - name: Generate server certificate
   ansible.builtin.shell: |
@@ -74,22 +101,29 @@
   args:
       chdir: "{{ ipsec.certs.path }}"
       executable: /bin/bash
-  when: generate_certs is defined and generate_certs
   register: output
   changed_when: output.rc == 0
   notify: "Restart strongswan"
+  tags:
+      - install
+      - renew_certificate
+      - renew_ca
 
 - name: Download CA certificate to current localhost directory
   ansible.builtin.fetch:
       src: "{{ ipsec.cacerts.path }}/{{ ipsec.cacerts.ca_cert.filename }}"
       dest: "./{{ domain_name }}-ca-cert.pem"
       flat: true
+  tags:
+      - install
+      - renew_ca
 
 - name: "Chmod {{ ipsec.private.path }}"
   ansible.builtin.file:
       path: "{{ ipsec.private.path }}"
       mode: '0700'
       recurse: true
+  tags: install
 
 - name: Create ipsec.conf
   ansible.builtin.template:
@@ -100,6 +134,8 @@
       group: root
       backup: true
   notify: "Restart strongswan"
+  tags: always
+
 
 - name: Create ipsec.secrets
   ansible.builtin.template:
@@ -110,26 +146,31 @@
       group: root
       backup: true
   notify: "Restart strongswan"
+  tags: always
 
 - name: Sysctl - Enable ipv4 forwarding
   ansible.posix.sysctl:
       name: net.ipv4.ip_forward
       value: '1'
+  tags: install
 
 - name: Sysctl - Deny ipv4 redirects
   ansible.posix.sysctl:
       name: net.ipv4.conf.all.accept_redirects
       value: '0'
+  tags: install
 
 - name: Sysctl - Do not send ipv4 redirects
   ansible.posix.sysctl:
       name: net.ipv4.conf.all.send_redirects
       value: '0'
+  tags: install
 
 - name: Sysctl - ip_no_pmtu_disc
   ansible.posix.sysctl:
       name: net.ipv4.ip_no_pmtu_disc
       value: '1'
+  tags: install
 
 - name: Nftables - Add config file
   ansible.builtin.template:
@@ -139,3 +180,10 @@
       owner: root
       group: root
   notify: "Nftables - Reload configuration"
+  tags: always
+
+- name: Check if Strongswan is running
+  ansible.builtin.systemd:
+      name: strongswan-starter
+      state: started
+  tags: always

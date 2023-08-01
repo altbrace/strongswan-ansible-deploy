@@ -8,7 +8,7 @@ table ip nat {
 table ip mangle {
         chain forward {
                 type filter hook forward priority mangle; policy accept;
-                oif "{{ ansible_facts.default_ipv4.interface }}" ipsec in ip saddr 10.10.10.0/24 tcp flags syn / syn,rst tcp option maxseg size 1361-1536 tcp option maxseg size set 1360
+                oif "{{ ansible_facts.default_ipv4.interface }}" ipsec in ip saddr 10.10.10.0/24 tcp flags & (syn|rst) == syn tcp option maxseg size 1361-1536 tcp option maxseg size set 1360
         }
 }
 table ip filter {
