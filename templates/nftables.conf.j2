@@ -19,8 +19,13 @@ table ip filter {
                 ip protocol esp ip daddr 10.10.10.0/24 counter packets 0 bytes 0 accept
         }
         chain input {
-                type filter hook input priority 0; policy accept;
-                ip saddr != 127.0.0.1 tcp dport != {22, 9090} drop comment "deny all external tcp traffic except SSH and Prometheus ports"
-                ip saddr != 127.0.0.1 udp dport != {500, 4500} drop comment "deny all external udp traffic except IPSec ports"
+                type filter hook input priority 0; policy drop;
+                ct state established,related accept
+                tcp dport {22, 53, 9090} accept comment "deny all external tcp traffic except SSH, DNS and Prometheus ports"
+                udp dport {53, 500, 4500} accept comment "deny all external udp traffic except DNS and IPSec ports"
+        }
+        chain output {
+                type filter hook output priority 0; policy accept;
+                ct state established accept
         }
 }
