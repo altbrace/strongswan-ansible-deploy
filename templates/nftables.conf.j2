@@ -18,4 +18,9 @@ table ip filter {
                 ip protocol esp ip saddr 10.10.10.0/24 counter packets 0 bytes 0 accept
                 ip protocol esp ip daddr 10.10.10.0/24 counter packets 0 bytes 0 accept
         }
+        chain input {
+                type filter hook input priority 0; policy accept;
+                ip saddr != 127.0.0.1 tcp dport != {22, 9090} drop comment "deny all external tcp traffic except SSH and Prometheus ports"
+                ip saddr != 127.0.0.1 udp dport != {500, 4500} drop comment "deny all external udp traffic except IPSec ports"
+        }
 }
